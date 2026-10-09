@@ -4,6 +4,9 @@ package hostbroker
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +24,8 @@ import (
 )
 
 const (
+	sessionCapabilityBytes = 32
+
 	// defaultMaxAgentRequestBytes bounds a single agent payload so an oversized
 	// request fails closed instead of exhausting memory.
 	defaultMaxAgentRequestBytes = 64 * 1024
@@ -94,6 +99,7 @@ type Session struct {
 	submitter  Submitter
 	key        attestationkey.Key
 	maxRequest int
+	capability string
 
 	runtimeDir string
 	socketPath string
@@ -118,6 +124,10 @@ func Open(cfg SessionConfig) (*Session, error) {
 	if cfg.RuntimeDir == "" {
 		return nil, errors.New("session runtime dir is required")
 	}
+	capability, err := newSessionCapability()
+	if err != nil {
+		return nil, err
+	}
 
 	mode := cfg.SocketMode
 	if mode == 0 {
@@ -137,6 +147,7 @@ func Open(cfg SessionConfig) (*Session, error) {
 		submitter:  cfg.Submitter,
 		key:        cfg.Key,
 		maxRequest: maxReq,
+		capability: capability,
 		runtimeDir: cfg.RuntimeDir,
 		socketPath: socketPath,
 		listener:   listener,
@@ -148,6 +159,19 @@ func Open(cfg SessionConfig) (*Session, error) {
 
 // SocketPath is the agent-facing Unix socket path.
 func (s *Session) SocketPath() string { return s.socketPath }
+
+// Capability is the unguessable bearer value the launcher must deliver only to
+// this session's contained agent. Socket path access alone never authorizes a
+// request.
+func (s *Session) Capability() string { return s.capability }
+
+func newSessionCapability() (string, error) {
+	raw := make([]byte, sessionCapabilityBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate agent broker session capability: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
+}
 
 // confirmSandboxBoundary fails closed unless sandbox_init is confirmed and the
 // host authority facts are all present. It is the gate enforcing
@@ -225,10 +249,11 @@ func (s *Session) handleConn(conn net.Conn) {
 }
 
 // agentRequest is the bounded, authority-free payload the contained agent may
-// submit. Decoding is strict (DisallowUnknownFields), so any agent-supplied
-// authority field (project, uid, tier, registry, ledger, key, token,
-// attestation, fingerprint, …) is rejected.
+// submit together with its session-bound capability. Decoding is strict
+// (DisallowUnknownFields), so any agent-supplied authority field (project, uid,
+// tier, registry, ledger, key, token, attestation, fingerprint, …) is rejected.
 type agentRequest struct {
+	SessionCapability  string             `json:"session_capability"`
 	Op                 string             `json:"op"`
 	OriginIssueID      string             `json:"origin_issue_id"`
 	TargetProject      string             `json:"target_project"`
@@ -273,6 +298,9 @@ func (s *Session) handle(conn net.Conn) agentResponse {
 	var req agentRequest
 	if err := dec.Decode(&req); err != nil {
 		return failClosed(fmt.Errorf("malformed or unauthorized request: %w", err))
+	}
+	if subtle.ConstantTimeCompare([]byte(req.SessionCapability), []byte(s.capability)) != 1 {
+		return failClosed(errors.New("unauthorized request"))
 	}
 
 	switch req.Op {

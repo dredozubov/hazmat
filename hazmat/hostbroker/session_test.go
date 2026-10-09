@@ -110,8 +110,9 @@ func mustMarshal(t *testing.T, v any) []byte {
 	return b
 }
 
-func deliverPayload(t *testing.T) []byte {
+func deliverPayload(t *testing.T, capability string) []byte {
 	return mustMarshal(t, agentRequest{
+		SessionCapability:  capability,
 		Op:                 "deliver",
 		OriginIssueID:      "api-1",
 		TargetProject:      "web",
@@ -191,7 +192,7 @@ func TestDeliverDispatchDerivesAuthorityAndFingerprint(t *testing.T) {
 	fake := newFakeSubmitter(Result{Message: "created decision=auto_deliver proxy=web-5"}, nil)
 	s := openTestSession(t, facts, fake, key, 0)
 
-	resp := roundTrip(t, s.SocketPath(), deliverPayload(t))
+	resp := roundTrip(t, s.SocketPath(), deliverPayload(t, s.Capability()))
 	if !resp.OK || resp.Message != "created decision=auto_deliver proxy=web-5" {
 		t.Fatalf("response = %+v", resp)
 	}
@@ -235,7 +236,7 @@ func TestReviewDispatch(t *testing.T) {
 	fake := newFakeSubmitter(Result{Message: "beadpost review …"}, nil)
 	s := openTestSession(t, validFacts(t), fake, key, 0)
 
-	payload := mustMarshal(t, agentRequest{Op: "review", OriginIssueID: "api-1", TargetProject: "web", Title: "x"})
+	payload := mustMarshal(t, agentRequest{SessionCapability: s.Capability(), Op: "review", OriginIssueID: "api-1", TargetProject: "web", Title: "x"})
 	resp := roundTrip(t, s.SocketPath(), payload)
 	if !resp.OK {
 		t.Fatalf("review response = %+v", resp)
@@ -251,7 +252,7 @@ func TestRejectsUnsupportedOps(t *testing.T) {
 	s := openTestSession(t, validFacts(t), fake, key, 0)
 
 	for _, op := range []string{"decide", "frobnicate", ""} {
-		payload := mustMarshal(t, agentRequest{Op: op, OriginIssueID: "api-1", TargetProject: "web"})
+		payload := mustMarshal(t, agentRequest{SessionCapability: s.Capability(), Op: op, OriginIssueID: "api-1", TargetProject: "web"})
 		resp := roundTrip(t, s.SocketPath(), payload)
 		if resp.OK {
 			t.Fatalf("op %q must be rejected", op)
@@ -267,7 +268,7 @@ func TestRejectsAgentSuppliedAuthorityFields(t *testing.T) {
 	fake := newFakeSubmitter(Result{}, nil)
 	s := openTestSession(t, validFacts(t), fake, key, 0)
 
-	base := `"op":"deliver","origin_issue_id":"api-1","target_project":"web","title":"t"`
+	base := `"session_capability":"` + s.Capability() + `","op":"deliver","origin_issue_id":"api-1","target_project":"web","title":"t"`
 	for _, field := range []string{
 		`"origin_project":"evil"`,
 		`"project":"evil"`,
@@ -302,7 +303,7 @@ func TestRejectsMalformedAndOversized(t *testing.T) {
 	if resp := roundTrip(t, s.SocketPath(), []byte("{not json")); resp.OK {
 		t.Fatal("malformed payload must be rejected")
 	}
-	big := mustMarshal(t, agentRequest{Op: "deliver", OriginIssueID: "api-1", TargetProject: "web", Description: strings.Repeat("x", 1024)})
+	big := mustMarshal(t, agentRequest{SessionCapability: s.Capability(), Op: "deliver", OriginIssueID: "api-1", TargetProject: "web", Description: strings.Repeat("x", 1024)})
 	if resp := roundTrip(t, s.SocketPath(), big); resp.OK {
 		t.Fatal("oversized payload must be rejected")
 	}
@@ -316,7 +317,7 @@ func TestResponseNeverLeaksKeyOrToken(t *testing.T) {
 	fake := newFakeSubmitter(Result{Message: "created"}, nil)
 	s := openTestSession(t, validFacts(t), fake, key, 0)
 
-	resp := roundTrip(t, s.SocketPath(), deliverPayload(t))
+	resp := roundTrip(t, s.SocketPath(), deliverPayload(t, s.Capability()))
 	got := <-fake.ch
 	data := mustMarshal(t, resp)
 	// The response must not echo the minted signature/token or key material.
@@ -334,5 +335,40 @@ func TestSocketModeRestrictive(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm&0o007 != 0 {
 		t.Fatalf("socket mode %#o grants world access", perm)
+	}
+}
+
+func TestRejectsPeerWithoutSessionCapability(t *testing.T) {
+	key := loadFixedKey(t, "0123456789abcdef0123456789abcdef")
+	fake := newFakeSubmitter(Result{Message: "created"}, nil)
+	s := openTestSession(t, validFacts(t), fake, key, 0)
+	other := openTestSession(t, validFacts(t), fake, key, 0)
+
+	for name, capability := range map[string]string{
+		"missing":       "",
+		"incorrect":     strings.Repeat("0", sessionCapabilityBytes*2),
+		"other session": other.Capability(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := roundTrip(t, s.SocketPath(), deliverPayload(t, capability))
+			if resp.OK || resp.Error != "unauthorized request" {
+				t.Fatalf("response = %+v, want generic authorization failure", resp)
+			}
+		})
+	}
+	if len(fake.ch) != 0 {
+		t.Fatal("unauthenticated peer requests must not dispatch")
+	}
+}
+
+func TestSessionCapabilityIsRandomAndBoundToSession(t *testing.T) {
+	key := loadFixedKey(t, "0123456789abcdef0123456789abcdef")
+	s1 := openTestSession(t, validFacts(t), newFakeSubmitter(Result{}, nil), key, 0)
+	s2 := openTestSession(t, validFacts(t), newFakeSubmitter(Result{}, nil), key, 0)
+	if len(s1.Capability()) != sessionCapabilityBytes*2 {
+		t.Fatalf("capability length = %d, want %d hex chars", len(s1.Capability()), sessionCapabilityBytes*2)
+	}
+	if s1.Capability() == s2.Capability() {
+		t.Fatal("sessions must not share a capability")
 	}
 }
