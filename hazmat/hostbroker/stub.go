@@ -136,4 +136,6 @@ func Open(SessionConfig) (*Session, error) { return nil, ErrDisabled }
 
 func (*Session) SocketPath() string { return "" }
 
+func (*Session) Capability() string { return "" }
+
 func (*Session) Close() error { return nil }

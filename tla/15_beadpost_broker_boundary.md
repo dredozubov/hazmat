@@ -10,7 +10,8 @@ hygiene, Part 2). Plan: `docs/plans/2026-06-09-beadpost-attestation-spec-plan.md
 
 The chosen integration model is **contained-agent submitter + dr-owned host
 broker**. A contained agent submits *closed request payloads* — request content
-only, never authority fields — to a per-session, dr-owned broker socket. The
+plus an unguessable per-session capability, never authority fields — to a
+per-session, dr-owned broker socket. The
 broker (host side) holds the Beadpost HMAC key / registry / ledger, derives
 project/session/tier authority from host launch facts, and invokes Beadpost
 delivery/review itself. The agent never holds the signing key, a key path, or a
@@ -24,7 +25,8 @@ modeled here.
 The correctness obligations:
 
 1. a broker socket exists only for a session whose containment was confirmed;
-2. a request is accepted only for a confirmed session;
+2. a request is accepted only for a confirmed session that presents the
+   unguessable capability minted for that exact session;
 3. authority attached to a request is always exactly the host launch facts —
    the agent cannot supply or influence it (there is no agent authority field);
 4. an accepted request's authority equals the host launch facts;
@@ -46,8 +48,10 @@ outcome an agent could drive.
 ## Model
 
 Per-session lifecycle: `prepared → confirmed → accepted → closed`. Confirmation
-allocates a unique per-session broker socket. The agent submits content; the
-broker derives authority and accepts; delivery transitions to `accepted`; close
+allocates a unique per-session broker socket and a unique, unguessable session
+capability. A peer may discover and connect to the socket, but the broker accepts
+its content only when the peer presents that session's capability. The broker
+then derives authority and accepts; delivery transitions to `accepted`; close
 releases the socket and clears residual state. `launchFacts` is chosen at `Init`
 and never primed; `genesisFacts` is its immutable witness.
 
@@ -58,12 +62,13 @@ confirmed-containment metadata before broker activation) is proved separately in
 ## Invariants
 
 `BrokerSocketOnlyAfterConfirmedSession`, `AcceptedRequestHasConfirmedSession`,
+`AcceptedRequestHasSessionCapability`,
 `AgentCannotSupplyAuthorityFields`, `AcceptedAuthorityEqualsLaunchFacts`,
 `NoCrossSessionRequest`, `NoRequestAfterSessionClose`,
 `HostAuthorityNeverAgentReadable`, `DeliveryOnlyFromAcceptedRequest`.
 
-TLC: "No error has been found" across 1,088 reachable states (3,104 generated,
-depth 9, <1s) with 2 sessions, 2 projects, 2 tiers, 2 sockets.
+TLC must report "No error has been found" with 2 sessions, 2 projects, 2 tiers,
+2 sockets, and 2 session capabilities.
 
 ## Scope boundary / non-fits
 
@@ -88,3 +93,6 @@ depth 9, <1s) with 2 sessions, 2 projects, 2 tiers, 2 sockets.
   `AcceptedAuthorityEqualsLaunchFacts`.
 - Allowing socket reuse across concurrent sessions requires re-proving
   `NoCrossSessionRequest`.
+- Removing or weakening the session-capability check requires re-proving
+  `AcceptedRequestHasSessionCapability` (it will fail — socket path access alone
+  is not authentication).
