@@ -223,7 +223,8 @@ chmod +x "$binary_path"
 # Run claude install to set up launcher and shell integration
 echo "Setting up Claude Code..."
 install_code=0
-"$binary_path" install ${TARGET:+"$TARGET"} || install_code=$?
+# From the download folder, so the result doesn't depend on where the script was started
+(cd "$DOWNLOAD_DIR" && exec "$binary_path" install ${TARGET:+"$TARGET"}) || install_code=$?
 
 # Clean up downloaded file
 rm -f "$binary_path"
